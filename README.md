@@ -138,4 +138,3 @@ The transmitter converts a text message into Morse code and displays it as rapid
 - Omar
 - Zayd
 - Adam
-- Suhaib
