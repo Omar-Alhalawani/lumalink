@@ -1,140 +1,98 @@
-# LumaLink
+# LumaLink — QNX Optical Emergency Communication
 
-LumaLink is a real-time optical emergency communication system built on **QNX RTOS**. It uses a Raspberry Pi Camera Module 3 Wide to detect high-speed Morse code light flashes, decodes them into text, and uses a locally hosted AI model to generate an operator-friendly emergency summary.
+**QNX RTOS • Raspberry Pi 5 • C Camera API • Morse code • Python • Local AI**
 
-The system demonstrates how deterministic scheduling in QNX enables reliable frame capture for time-critical optical communication, where missing even a few frames can result in an incorrect decoded message.
+LumaLink is a prototype **light-based message receiver** for scenarios where a camera can observe a remote flashing light source. A Python desktop transmitter encodes text as visible Morse flashes; a QNX-based camera application interprets light transitions, then a local Python pipeline decodes the message and generates a concise operator-facing summary. An **SOS** message can launch a browser-based alert display.
 
----
+The main engineering challenge is **timing-sensitive optical decoding**: distinguishing dots, dashes, and gaps reliably despite camera frame-rate quantization, background light, and imprecise signal timing.
 
-## Hardware
+## End-to-end architecture
 
-### Receiver
-- Raspberry Pi 5
-- Raspberry Pi Camera Module 3 Wide
-- QNX RTOS
-
-### Transmitter
-- Any computer capable of running the Python transmitter script
-- Display/monitor used as the light source
-
----
-
-## Project Structure
-
-```
-camera_example1_callback.c      # Camera receiver (QNX/C)
-transmitter.py                  # Morse code transmitter
-lumalink_ai_server.py           # AI + web dashboard
-morse_output/output.txt         # Generated Morse output
+```text
+Transmitting computer                         Receiving Raspberry Pi 5 / QNX
+┌────────────────────────┐                    ┌──────────────────────────────┐
+│ Python + Tkinter       │   light pulses     │ Camera Module 3 Wide         │
+│ text → Morse → flashes ├───────────────────►│ QNX Camera API C receiver    │
+└────────────────────────┘                    │ spot tracking + pulse timing  │
+                                              └──────────────┬───────────────┘
+                                                             │ output.txt
+                                              ┌──────────────▼───────────────┐
+                                              │ Python Morse decoder         │
+                                              │ locally hosted Qwen/llama.cpp│
+                                              │ short emergency summary      │
+                                              │ SOS? → HTTP alert dashboard  │
+                                              └──────────────────────────────┘
 ```
 
----
+## Engineering highlights
 
-## How It Works
+- **Camera-based reception:** C application using QNX Camera API (`libcamapi`).
+- **Localized optical signal tracking:** detect a bright spot through changes in local contrast rather than absolute frame brightness.
+- **Transition validation:** confirm state changes across frames, associate timestamps with transitions, and tolerate isolated invalid pulses.
+- **Timing-based Morse recognition:** transmitter uses nominal **100 ms dots**, **200 ms dashes**, and different symbol/letter/word gaps; receiver accounts for approximately 30 fps frame quantization.
+- **Offline summarization:** Python invokes a locally hosted Qwen GGUF model via `llama-cli`; failures fall back to a deterministic text response.
+- **Safety logic separated from AI:** the alert server is launched by detection of the decoded literal word **SOS**, not by the model's judgment.
+- **Operator UI:** a generated web page presents decoded text, a short summary, and user-triggered audio alarm and speech synthesis.
 
-1. The transmitter converts a text message into Morse code.
-2. The message is displayed as rapid flashes on another computer's screen.
-3. The Raspberry Pi camera captures the flashes.
-4. The QNX receiver converts the flashes into Morse code.
-5. The Morse code is decoded into English.
-6. A local Qwen AI model generates an operator-friendly summary.
-7. If an SOS message is detected, a local emergency dashboard is launched.
+This is an engineering demonstration, **not a validated emergency-response service**.
 
----
+## Repository files
 
-# Running the Receiver
+| File | Role |
+| --- | --- |
+| [`camera_example1_callback.c`](camera_example1_callback.c) | QNX camera receiver, spot tracking, pulse processing, Morse output |
+| [`transmitter.py`](transmitter.py) | Tkinter-based text-to-light Morse transmitter |
+| [`lumalink_ai_server.py`](lumalink_ai_server.py) | Decoding, local-model inference, and SOS web alert |
+| `README.md` | Architecture, reproduction, and limitations |
 
-## 1. Compile
+## Hardware and software
 
-From the directory containing the receiver source:
+**Receiver:** Raspberry Pi 5, Raspberry Pi Camera Module 3 Wide, QNX RTOS, QNX Camera API and QNX cross-compiler.
 
-```bash
-qcc -Vgcc_ntoaarch64le camera_example1_callback.c \
-    -o camera_example1_callback \
-    -lcamapi
-```
+**Transmitter:** a separate computer with Python 3, Tkinter, and a screen aimed toward the camera.
 
----
+**AI pipeline:** Python 3, QNX-compatible `llama.cpp` binary, and a compatible locally stored Qwen GGUF model.
 
-## 2. Copy to the Raspberry Pi
-
-```bash
-scp camera_example1_callback \
-qnxuser@10.113.69.106:/data/home/qnxuser/
-```
-
----
-
-## 3. SSH or TigerVNC into the Raspberry Pi
-
-Make the binary executable:
-
-```bash
-chmod +x /data/home/qnxuser/camera_example1_callback
-```
-
----
-
-## 4. Run the receiver
-
-```bash
-./camera_example1_callback -u 1
-```
-
----
-
-## 5. View the generated Morse output
-
-```bash
-cat /data/home/qnxuser/morse_output/output.txt
-```
-
----
-
-## 6. Run the AI pipeline
-
-```bash
-python3 \
-/data/home/qnxuser/projects/LumaLink_AI_Alert/lumalink_ai_server.py
-```
-
-Or launch both automatically:
-
-```bash
-./camera_example1_callback -u 1 && \
-python3 /data/home/qnxuser/projects/LumaLink_AI_Alert/lumalink_ai_server.py
-```
-
----
-
-# Running the Transmitter
-
-On a separate computer:
+## Running the transmitter
 
 ```bash
 python3 transmitter.py
 ```
 
-The transmitter converts a text message into Morse code and displays it as rapid flashes on the screen.
+Enter a message in the dialog. The application opens a black window and flashes a small white dot. Press **Esc** to close. The dot/dash timing is customized for this demonstration and should not be treated as an interoperable general-purpose Morse transport specification.
 
----
+## Building and running the receiver
 
-# Technologies Used
+In a configured QNX development environment, compile the C source for the target architecture:
 
-- QNX RTOS
-- Raspberry Pi 5
-- Raspberry Pi Camera Module 3 Wide
-- C
-- Python
-- QNX Camera API (libcamapi)
-- Qwen 3
-- llama.cpp-qnx
-- HTML/CSS/JavaScript
+```bash
+qcc -Vgcc_ntoaarch64le camera_example1_callback.c -o camera_example1_callback -lcamapi
+```
 
----
+Copy the binary to the QNX device, make it executable, and run with the correct camera unit (shown here as unit 1):
 
-# Authors
+```bash
+chmod +x camera_example1_callback
+./camera_example1_callback -u 1
+```
 
-- Omar
-- Zayd
-- Adam
+The receiver expects a camera supported by the deployed QNX camera stack and writes Morse output to `/data/home/qnxuser/morse_output/output.txt`. Paths, device identifiers, and driver availability are **environment-specific**.
+
+## Running the local AI/alert stage
+
+The Python implementation references absolute QNX paths for the Morse output, `llama-cli`, and the model file. Configure those paths and install the model before running.
+
+**Important source-file note:** the committed `lumalink_ai_server.py` currently contains surrounding shell heredoc lines (`cd ...`, `cat ... <<'PY'`, and closing `PY`). **As checked in, it is not directly runnable as a Python script**. Extract the enclosed Python into a clean script before execution, or remove those wrapper lines in a local copy. This README update intentionally does not modify the source.
+
+The decoded message and summary are written to files. When decoded text contains **SOS**, an HTTP dashboard is served on port `8080` (subject to local networking and browser audio permissions).
+
+## Limitations and opportunities
+
+- No published automated reliability or packet-error measurements; optical performance depends on illumination, alignment, camera settings, frame rate, and timing.
+- Camera selection, QNX cross-compilation, and local-model paths require device-specific configuration.
+- The published AI file requires removal of shell wrapper text before direct Python execution.
+- The repository is a proof of concept, not an authenticated, fault-tolerant, or field-certified distress communications product.
+
+## Contributors
+
+Omar, Zayd, and Adam.
