@@ -95,4 +95,4 @@ The decoded message and summary are written to files. When decoded text contains
 
 ## Contributors
 
-Omar, Zayd, and Adam.
+Omar, Zayd, Suhaib and Adam.
